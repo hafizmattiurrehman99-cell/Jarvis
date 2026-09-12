@@ -1,6 +1,8 @@
 package com.example.jarvis
 
 import android.Manifest
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
@@ -21,6 +23,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var tts: TextToSpeech
     private lateinit var statusText: TextView
+    private lateinit var devicePolicyManager: DevicePolicyManager
+    private lateinit var adminComponent: ComponentName
 
     private val SPEECH_REQUEST_CODE = 100
     private val PERMISSION_REQUEST_CODE = 200
@@ -34,6 +38,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         tts = TextToSpeech(this, this)
 
+        devicePolicyManager = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        adminComponent = ComponentName(this, JarvisDeviceAdminReceiver::class.java)
+
         requestNeededPermissions()
 
         micButton.setOnClickListener {
@@ -44,6 +51,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale.getDefault()
+            tts.setPitch(0.75f)
+            tts.setSpeechRate(1.0f)
+            try {
+                val maleVoice = tts.voices?.firstOrNull { voice ->
+                    val name = voice.name.lowercase(Locale.getDefault())
+                    name.contains("male") && !name.contains("female")
+                }
+                if (maleVoice != null) {
+                    tts.voice = maleVoice
+                }
+            } catch (e: Exception) {
+                // agar male voice na mile to pitch se hi kaam chalayenge
+            }
         }
     }
 
@@ -57,6 +77,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         if (needed.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, needed.toTypedArray(), PERMISSION_REQUEST_CODE)
+        }
+    }
+
+    private fun requestDeviceAdmin() {
+        if (!devicePolicyManager.isAdminActive(adminComponent)) {
+            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+            intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+            intent.putExtra(
+                DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                "Jarvis ko phone lock karne ke liye yeh permission chahiye"
+            )
+            startActivity(intent)
         }
     }
 
@@ -95,6 +127,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             command.contains("date") || command.contains("tareekh") -> {
                 val date = SimpleDateFormat("dd MMMM yyyy", Locale.getDefault()).format(Date())
                 speak("Aaj ki date hai $date")
+            }
+
+            command.contains("phone lock") || command.contains("screen lock") || command.contains("lock kar") -> {
+                if (devicePolicyManager.isAdminActive(adminComponent)) {
+                    devicePolicyManager.lockNow()
+                    speak("Phone lock kar raha hoon")
+                } else {
+                    speak("Pehle mujhe lock karne ki permission dijiye")
+                    requestDeviceAdmin()
+                }
             }
 
             command.contains("alarm") -> {
