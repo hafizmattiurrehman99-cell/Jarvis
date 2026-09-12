@@ -3,6 +3,7 @@ package com.example.jarvis
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.os.Bundle
 import android.provider.AlarmClock
@@ -82,6 +83,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private val openWords = listOf("khol do", "khol de", "khol", "kholo", "open kar", "open", "start kar", "start", "launch kar", "launch", "chalao", "chala do")
+
     private fun handleCommand(command: String) {
         when {
             command.contains("time") || command.contains("samay") || command.contains("waqt") -> {
@@ -108,16 +111,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
-            command.contains("whatsapp") || command.contains("whats app") -> {
-                openApp("com.whatsapp", "WhatsApp")
-            }
-
             command.contains("youtube") -> {
-                val query = command.replace("youtube", "").replace("khol", "")
-                    .replace("kholo", "").replace("par", "").replace("search", "")
-                    .replace("karo", "").trim()
+                val query = command.replace("youtube", "")
+                    .replace(Regex("khol.*|kholo|open|search|karo|par"), "").trim()
                 if (query.isEmpty()) {
-                    openApp("com.google.android.youtube", "YouTube")
+                    if (!openAppByName("youtube")) speak("YouTube is phone par install nahi hai")
                 } else {
                     val ytIntent = Intent(Intent.ACTION_VIEW,
                         Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query)))
@@ -128,10 +126,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         speak("YouTube nahi khul saka")
                     }
                 }
-            }
-
-            command.contains("instagram") -> {
-                openApp("com.instagram.android", "Instagram")
             }
 
             command.contains("call") || command.contains("kaal") -> {
@@ -159,8 +153,33 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 speak("Search kar raha hoon $query")
             }
 
+            command.contains("kaise ho") || command.contains("kya haal") || command.contains("how are you") -> {
+                speak("Main bilkul theek hoon, aap bataiye main aapke liye kya kar sakta hoon")
+            }
+
+            command.contains("naam kya") || command.contains("tum kaun") || command.contains("aap kaun") -> {
+                speak("Mera naam Jarvis hai, main aapka personal assistant hoon")
+            }
+
+            command.contains("shukriya") || command.contains("thank you") || command.contains("thanks") -> {
+                speak("Koi baat nahi, hamesha khush rahiye")
+            }
+
             command.contains("hello") || command.contains("hi") || command.contains("salam") -> {
                 speak("Hello, main Jarvis hoon. Bataiye kya karna hai")
+            }
+
+            openWords.any { command.contains(it) } -> {
+                var appName = command
+                for (w in openWords) {
+                    appName = appName.replace(w, "")
+                }
+                appName = appName.trim()
+                if (appName.isEmpty()) {
+                    speak("Kaunsi app kholni hai, naam boliye")
+                } else if (!openAppByName(appName)) {
+                    speak("Mujhe \"$appName\" naam ki app is phone par nahi mili")
+                }
             }
 
             else -> {
@@ -169,13 +188,47 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun openApp(packageName: String, appLabel: String) {
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-        if (launchIntent != null) {
-            startActivity(launchIntent)
-            speak("$appLabel khol raha hoon")
+    private fun openAppByName(spokenNameRaw: String): Boolean {
+        val spokenName = spokenNameRaw.trim().lowercase(Locale.getDefault())
+        if (spokenName.isEmpty()) return false
+
+        val pm = packageManager
+        val mainIntent = Intent(Intent.ACTION_MAIN, null)
+        mainIntent.addCategory(Intent.CATEGORY_LAUNCHER)
+        val installedApps: List<ResolveInfo> = pm.queryIntentActivities(mainIntent, 0)
+
+        var bestMatch: ResolveInfo? = null
+
+        for (app in installedApps) {
+            val label = app.loadLabel(pm).toString().lowercase(Locale.getDefault())
+            if (label == spokenName) {
+                bestMatch = app
+                break
+            }
+        }
+
+        if (bestMatch == null) {
+            for (app in installedApps) {
+                val label = app.loadLabel(pm).toString().lowercase(Locale.getDefault())
+                if (label.contains(spokenName) || spokenName.contains(label)) {
+                    bestMatch = app
+                    break
+                }
+            }
+        }
+
+        return if (bestMatch != null) {
+            val packageName = bestMatch.activityInfo.packageName
+            val launchIntent = pm.getLaunchIntentForPackage(packageName)
+            if (launchIntent != null) {
+                startActivity(launchIntent)
+                speak("${bestMatch.loadLabel(pm)} khol raha hoon")
+                true
+            } else {
+                false
+            }
         } else {
-            speak("$appLabel is phone par install nahi hai")
+            false
         }
     }
 
