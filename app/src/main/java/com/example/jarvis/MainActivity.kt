@@ -3,6 +3,7 @@ package com.example.jarvis
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.provider.AlarmClock
 import android.speech.RecognizerIntent
@@ -83,7 +84,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun handleCommand(command: String) {
         when {
-            command.contains("time") || command.contains("samay") -> {
+            command.contains("time") || command.contains("samay") || command.contains("waqt") -> {
                 val time = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
                 speak("Abhi time hai $time")
             }
@@ -107,6 +108,49 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
             }
 
+            command.contains("whatsapp") || command.contains("whats app") -> {
+                openApp("com.whatsapp", "WhatsApp")
+            }
+
+            command.contains("youtube") -> {
+                val query = command.replace("youtube", "").replace("khol", "")
+                    .replace("kholo", "").replace("par", "").replace("search", "")
+                    .replace("karo", "").trim()
+                if (query.isEmpty()) {
+                    openApp("com.google.android.youtube", "YouTube")
+                } else {
+                    val ytIntent = Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query)))
+                    try {
+                        startActivity(ytIntent)
+                        speak("YouTube par $query dhoondh raha hoon")
+                    } catch (e: Exception) {
+                        speak("YouTube nahi khul saka")
+                    }
+                }
+            }
+
+            command.contains("instagram") -> {
+                openApp("com.instagram.android", "Instagram")
+            }
+
+            command.contains("call") || command.contains("kaal") -> {
+                val digits = command.filter { it.isDigit() }
+                if (digits.length >= 6) {
+                    val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$digits"))
+                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE)
+                        == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        startActivity(callIntent)
+                        speak("$digits par call kar raha hoon")
+                    } else {
+                        speak("Call ki permission nahi mili")
+                    }
+                } else {
+                    speak("Number samajh nahi aaya, dobara boliye")
+                }
+            }
+
             command.contains("browser") || command.contains("search") -> {
                 val query = command.replace("search", "").replace("browser", "").trim()
                 val intent = Intent(Intent.ACTION_WEB_SEARCH)
@@ -115,17 +159,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 speak("Search kar raha hoon $query")
             }
 
-            command.contains("call") -> {
-                speak("Kise call karna hai, naam boliye")
-            }
-
-            command.contains("hello") || command.contains("hi") -> {
+            command.contains("hello") || command.contains("hi") || command.contains("salam") -> {
                 speak("Hello, main Jarvis hoon. Bataiye kya karna hai")
             }
 
             else -> {
                 speak("Maaf kijiye, mujhe yeh command samajh nahi aayi")
             }
+        }
+    }
+
+    private fun openApp(packageName: String, appLabel: String) {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        if (launchIntent != null) {
+            startActivity(launchIntent)
+            speak("$appLabel khol raha hoon")
+        } else {
+            speak("$appLabel is phone par install nahi hai")
         }
     }
 
