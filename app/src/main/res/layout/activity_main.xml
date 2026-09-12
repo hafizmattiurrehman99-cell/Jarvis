@@ -4,20 +4,36 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center"
+    android:background="#121212"
     android:padding="24dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="JARVIS"
+        android:textColor="#25D366"
+        android:textSize="34sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="12dp" />
 
     <TextView
         android:id="@+id/statusText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Jarvis is ready"
-        android:textSize="20sp"
-        android:layout_marginBottom="32dp" />
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        android:gravity="center"
+        android:layout_marginBottom="48dp" />
 
     <Button
         android:id="@+id/micButton"
-        android:layout_width="140dp"
-        android:layout_height="140dp"
-        android:text="🎤 Speak" />
+        android:layout_width="160dp"
+        android:layout_height="160dp"
+        android:background="@drawable/mic_button_bg"
+        android:text="🎤 SPEAK"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold"
+        android:elevation="8dp" />
 
 </LinearLayout>
