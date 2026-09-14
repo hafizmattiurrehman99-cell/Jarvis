@@ -24,7 +24,7 @@
         android:textColor="#FFFFFF"
         android:textSize="18sp"
         android:gravity="center"
-        android:layout_marginBottom="48dp" />
+        android:layout_marginBottom="36dp" />
 
     <Button
         android:id="@+id/micButton"
@@ -34,6 +34,15 @@
         android:text="🎤 SPEAK"
         android:textColor="#FFFFFF"
         android:textStyle="bold"
-        android:elevation="8dp" />
+        android:elevation="8dp"
+        android:layout_marginBottom="28dp" />
+
+    <Button
+        android:id="@+id/backgroundButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Background: OFF"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#333333" />
 
 </LinearLayout>
