@@ -9,6 +9,7 @@ import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.os.Bundle
 import android.provider.AlarmClock
+import android.provider.ContactsContract
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.widget.Button
@@ -62,7 +63,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     tts.voice = maleVoice
                 }
             } catch (e: Exception) {
-                // agar male voice na mile to pitch se hi kaam chalayenge
             }
         }
     }
@@ -71,7 +71,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val needed = arrayOf(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.CALL_PHONE,
-            Manifest.permission.SEND_SMS
+            Manifest.permission.SEND_SMS,
+            Manifest.permission.READ_CONTACTS
         ).filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -137,6 +138,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     speak("Pehle mujhe lock karne ki permission dijiye")
                     requestDeviceAdmin()
                 }
+            }
+
+            // ---- Kisi contact ko WhatsApp par message: "Ali ko whatsapp par bolo kal milte hain" ----
+            command.contains("whatsapp") && command.contains(" ko ") -> {
+                sendWhatsappMessage(command)
             }
 
             command.contains("alarm") -> {
@@ -228,6 +234,74 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 speak("Maaf kijiye, mujhe yeh command samajh nahi aayi")
             }
         }
+    }
+
+    // Naam se contact dhoondh kar WhatsApp par message tayyar karta hai
+    private fun sendWhatsappMessage(command: String) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            speak("Contacts padhne ki permission nahi mili")
+            requestNeededPermissions()
+            return
+        }
+
+        val parts = command.split(" ko ", limit = 2)
+        if (parts.size < 2) {
+            speak("Kisko message karna hai, naam samajh nahi aaya")
+            return
+        }
+
+        val name = parts[0].trim()
+        var message = parts[1]
+            .replace("whatsapp par", "")
+            .replace("whatsapp pe", "")
+            .replace("whatsapp", "")
+            .replace(Regex("\\bbolo\\b|\\bkaho\\b|\\blikho\\b|\\bmessage\\b|\\bkaro\\b|\\bbhejo\\b"), "")
+            .trim()
+
+        if (message.isEmpty()) {
+            message = "Hi"
+        }
+
+        val number = getContactNumber(name)
+        if (number == null) {
+            speak("Mujhe \"$name\" naam ka contact nahi mila")
+            return
+        }
+
+        val cleanNumber = number.replace(Regex("[^0-9+]"), "")
+        val uri = Uri.parse("https://wa.me/$cleanNumber?text=" + Uri.encode(message))
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, uri)
+            startActivity(intent)
+            speak("$name ke liye WhatsApp par message tayyar kar diya, ab Send dabaiye")
+        } catch (e: Exception) {
+            speak("WhatsApp nahi khul saka")
+        }
+    }
+
+    private fun getContactNumber(name: String): String? {
+        val cr = contentResolver
+        val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+        val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            ContactsContract.CommonDataKinds.Phone.NUMBER
+        )
+        var number: String? = null
+        val cursor = cr.query(uri, projection, null, null, null)
+        cursor?.use {
+            val nameIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+            val numberIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+            while (it.moveToNext()) {
+                val displayName = it.getString(nameIndex) ?: ""
+                if (displayName.lowercase(Locale.getDefault()).contains(name.lowercase(Locale.getDefault()))) {
+                    number = it.getString(numberIndex)
+                    return@use
+                }
+            }
+        }
+        return number
     }
 
     private fun openAppByName(spokenNameRaw: String): Boolean {
