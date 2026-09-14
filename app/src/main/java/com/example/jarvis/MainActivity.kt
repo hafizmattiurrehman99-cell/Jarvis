@@ -1,15 +1,10 @@
 package com.example.jarvis
 
 import android.Manifest
-import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.pm.ResolveInfo
-import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import android.provider.AlarmClock
-import android.provider.ContactsContract
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.widget.Button
@@ -17,15 +12,14 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var tts: TextToSpeech
     private lateinit var statusText: TextView
-    private lateinit var devicePolicyManager: DevicePolicyManager
-    private lateinit var adminComponent: ComponentName
+    private lateinit var commandHandler: CommandHandler
+    private lateinit var backgroundButton: Button
 
     private val SPEECH_REQUEST_CODE = 100
     private val PERMISSION_REQUEST_CODE = 200
@@ -36,60 +30,69 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         statusText = findViewById(R.id.statusText)
         val micButton: Button = findViewById(R.id.micButton)
+        backgroundButton = findViewById(R.id.backgroundButton)
 
         tts = TextToSpeech(this, this)
-
-        devicePolicyManager = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        adminComponent = ComponentName(this, JarvisDeviceAdminReceiver::class.java)
+        commandHandler = CommandHandler(this) { text -> speak(text) }
 
         requestNeededPermissions()
+        updateBackgroundButtonLabel()
 
-        micButton.setOnClickListener {
-            startListening()
+        micButton.setOnClickListener { startListening() }
+
+        backgroundButton.setOnClickListener {
+            if (JarvisListenerService.isRunning) {
+                stopService(Intent(this, JarvisListenerService::class.java))
+            } else {
+                val intent = Intent(this, JarvisListenerService::class.java)
+                ContextCompat.startForegroundService(this, intent)
+            }
+            backgroundButton.postDelayed({ updateBackgroundButtonLabel() }, 500)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateBackgroundButtonLabel()
+    }
+
+    private fun updateBackgroundButtonLabel() {
+        backgroundButton.text = if (JarvisListenerService.isRunning)
+            "Background: ON (band karne ke liye dabayein)"
+        else
+            "Background: OFF (shuru karne ke liye dabayein)"
     }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale.getDefault()
             tts.setPitch(0.75f)
-            tts.setSpeechRate(1.0f)
             try {
                 val maleVoice = tts.voices?.firstOrNull { voice ->
                     val name = voice.name.lowercase(Locale.getDefault())
                     name.contains("male") && !name.contains("female")
                 }
-                if (maleVoice != null) {
-                    tts.voice = maleVoice
-                }
+                if (maleVoice != null) tts.voice = maleVoice
             } catch (e: Exception) {
             }
         }
     }
 
     private fun requestNeededPermissions() {
-        val needed = arrayOf(
+        val perms = mutableListOf(
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.CALL_PHONE,
             Manifest.permission.SEND_SMS,
             Manifest.permission.READ_CONTACTS
-        ).filter {
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            perms.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val needed = perms.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
         if (needed.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, needed.toTypedArray(), PERMISSION_REQUEST_CODE)
-        }
-    }
-
-    private fun requestDeviceAdmin() {
-        if (!devicePolicyManager.isAdminActive(adminComponent)) {
-            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
-            intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
-            intent.putExtra(
-                DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                "Jarvis ko phone lock karne ke liye yeh permission chahiye"
-            )
-            startActivity(intent)
         }
     }
 
@@ -112,239 +115,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val results = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             val spokenText = results?.get(0) ?: ""
             statusText.text = "Aapne kaha: $spokenText"
-            handleCommand(spokenText.lowercase(Locale.getDefault()))
-        }
-    }
-
-    private val openWords = listOf("khol do", "khol de", "khol", "kholo", "open kar", "open", "start kar", "start", "launch kar", "launch", "chalao", "chala do")
-
-    private fun handleCommand(command: String) {
-        when {
-            command.contains("time") || command.contains("samay") || command.contains("waqt") -> {
-                val time = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
-                speak("Abhi time hai $time")
-            }
-
-            command.contains("date") || command.contains("tareekh") -> {
-                val date = SimpleDateFormat("dd MMMM yyyy", Locale.getDefault()).format(Date())
-                speak("Aaj ki date hai $date")
-            }
-
-            command.contains("phone lock") || command.contains("screen lock") || command.contains("lock kar") -> {
-                if (devicePolicyManager.isAdminActive(adminComponent)) {
-                    devicePolicyManager.lockNow()
-                    speak("Phone lock kar raha hoon")
-                } else {
-                    speak("Pehle mujhe lock karne ki permission dijiye")
-                    requestDeviceAdmin()
-                }
-            }
-
-            // ---- Kisi contact ko WhatsApp par message: "Ali ko whatsapp par bolo kal milte hain" ----
-            command.contains("whatsapp") && command.contains(" ko ") -> {
-                sendWhatsappMessage(command)
-            }
-
-            command.contains("alarm") -> {
-                val intent = Intent(AlarmClock.ACTION_SET_ALARM)
-                startActivity(intent)
-                speak("Alarm app khol raha hoon")
-            }
-
-            command.contains("camera") -> {
-                val intent = Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
-                if (intent.resolveActivity(packageManager) != null) {
-                    startActivity(intent)
-                    speak("Camera khol raha hoon")
-                }
-            }
-
-            command.contains("youtube") -> {
-                val query = command.replace("youtube", "")
-                    .replace(Regex("khol.*|kholo|open|search|karo|par"), "").trim()
-                if (query.isEmpty()) {
-                    if (!openAppByName("youtube")) speak("YouTube is phone par install nahi hai")
-                } else {
-                    val ytIntent = Intent(Intent.ACTION_VIEW,
-                        Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(query)))
-                    try {
-                        startActivity(ytIntent)
-                        speak("YouTube par $query dhoondh raha hoon")
-                    } catch (e: Exception) {
-                        speak("YouTube nahi khul saka")
-                    }
-                }
-            }
-
-            command.contains("call") || command.contains("kaal") -> {
-                val digits = command.filter { it.isDigit() }
-                if (digits.length >= 6) {
-                    val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$digits"))
-                    if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE)
-                        == PackageManager.PERMISSION_GRANTED
-                    ) {
-                        startActivity(callIntent)
-                        speak("$digits par call kar raha hoon")
-                    } else {
-                        speak("Call ki permission nahi mili")
-                    }
-                } else {
-                    speak("Number samajh nahi aaya, dobara boliye")
-                }
-            }
-
-            command.contains("browser") || command.contains("search") -> {
-                val query = command.replace("search", "").replace("browser", "").trim()
-                val intent = Intent(Intent.ACTION_WEB_SEARCH)
-                intent.putExtra("query", query)
-                startActivity(intent)
-                speak("Search kar raha hoon $query")
-            }
-
-            command.contains("kaise ho") || command.contains("kya haal") || command.contains("how are you") -> {
-                speak("Main bilkul theek hoon, aap bataiye main aapke liye kya kar sakta hoon")
-            }
-
-            command.contains("naam kya") || command.contains("tum kaun") || command.contains("aap kaun") -> {
-                speak("Mera naam Jarvis hai, main aapka personal assistant hoon")
-            }
-
-            command.contains("shukriya") || command.contains("thank you") || command.contains("thanks") -> {
-                speak("Koi baat nahi, hamesha khush rahiye")
-            }
-
-            command.contains("hello") || command.contains("hi") || command.contains("salam") -> {
-                speak("Hello, main Jarvis hoon. Bataiye kya karna hai")
-            }
-
-            openWords.any { command.contains(it) } -> {
-                var appName = command
-                for (w in openWords) {
-                    appName = appName.replace(w, "")
-                }
-                appName = appName.trim()
-                if (appName.isEmpty()) {
-                    speak("Kaunsi app kholni hai, naam boliye")
-                } else if (!openAppByName(appName)) {
-                    speak("Mujhe \"$appName\" naam ki app is phone par nahi mili")
-                }
-            }
-
-            else -> {
-                speak("Maaf kijiye, mujhe yeh command samajh nahi aayi")
-            }
-        }
-    }
-
-    // Naam se contact dhoondh kar WhatsApp par message tayyar karta hai
-    private fun sendWhatsappMessage(command: String) {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            speak("Contacts padhne ki permission nahi mili")
-            requestNeededPermissions()
-            return
-        }
-
-        val parts = command.split(" ko ", limit = 2)
-        if (parts.size < 2) {
-            speak("Kisko message karna hai, naam samajh nahi aaya")
-            return
-        }
-
-        val name = parts[0].trim()
-        var message = parts[1]
-            .replace("whatsapp par", "")
-            .replace("whatsapp pe", "")
-            .replace("whatsapp", "")
-            .replace(Regex("\\bbolo\\b|\\bkaho\\b|\\blikho\\b|\\bmessage\\b|\\bkaro\\b|\\bbhejo\\b"), "")
-            .trim()
-
-        if (message.isEmpty()) {
-            message = "Hi"
-        }
-
-        val number = getContactNumber(name)
-        if (number == null) {
-            speak("Mujhe \"$name\" naam ka contact nahi mila")
-            return
-        }
-
-        val cleanNumber = number.replace(Regex("[^0-9+]"), "")
-        val uri = Uri.parse("https://wa.me/$cleanNumber?text=" + Uri.encode(message))
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, uri)
-            startActivity(intent)
-            speak("$name ke liye WhatsApp par message tayyar kar diya, ab Send dabaiye")
-        } catch (e: Exception) {
-            speak("WhatsApp nahi khul saka")
-        }
-    }
-
-    private fun getContactNumber(name: String): String? {
-        val cr = contentResolver
-        val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
-        val projection = arrayOf(
-            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-            ContactsContract.CommonDataKinds.Phone.NUMBER
-        )
-        var number: String? = null
-        val cursor = cr.query(uri, projection, null, null, null)
-        cursor?.use {
-            val nameIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
-            val numberIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-            while (it.moveToNext()) {
-                val displayName = it.getString(nameIndex) ?: ""
-                if (displayName.lowercase(Locale.getDefault()).contains(name.lowercase(Locale.getDefault()))) {
-                    number = it.getString(numberIndex)
-                    return@use
-                }
-            }
-        }
-        return number
-    }
-
-    private fun openAppByName(spokenNameRaw: String): Boolean {
-        val spokenName = spokenNameRaw.trim().lowercase(Locale.getDefault())
-        if (spokenName.isEmpty()) return false
-
-        val pm = packageManager
-        val mainIntent = Intent(Intent.ACTION_MAIN, null)
-        mainIntent.addCategory(Intent.CATEGORY_LAUNCHER)
-        val installedApps: List<ResolveInfo> = pm.queryIntentActivities(mainIntent, 0)
-
-        var bestMatch: ResolveInfo? = null
-
-        for (app in installedApps) {
-            val label = app.loadLabel(pm).toString().lowercase(Locale.getDefault())
-            if (label == spokenName) {
-                bestMatch = app
-                break
-            }
-        }
-
-        if (bestMatch == null) {
-            for (app in installedApps) {
-                val label = app.loadLabel(pm).toString().lowercase(Locale.getDefault())
-                if (label.contains(spokenName) || spokenName.contains(label)) {
-                    bestMatch = app
-                    break
-                }
-            }
-        }
-
-        return if (bestMatch != null) {
-            val packageName = bestMatch.activityInfo.packageName
-            val launchIntent = pm.getLaunchIntentForPackage(packageName)
-            if (launchIntent != null) {
-                startActivity(launchIntent)
-                speak("${bestMatch.loadLabel(pm)} khol raha hoon")
-                true
-            } else {
-                false
-            }
-        } else {
-            false
+            commandHandler.handleCommand(spokenText.lowercase(Locale.getDefault()))
         }
     }
 
